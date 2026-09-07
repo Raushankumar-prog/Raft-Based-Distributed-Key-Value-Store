@@ -1,21 +1,22 @@
 use crate::dto::{GetResponse, SetRequest};
 use actix_web::{error, web, HttpResponse, Responder};
 use kv_store::KvStore;
+use raft_core::{ClientCommand, RaftHandle};
 use std::sync::Arc;
 
 pub async fn set_kv(
-    store: web::Data<Arc<KvStore>>,
+    raft: web::Data<RaftHandle>,
     req: web::Json<SetRequest>,
 ) -> actix_web::Result<impl Responder> {
-    let key = req.key.clone();
-    let value = req.value.clone();
-    let store = store.clone();
+    let command = ClientCommand::Set {
+        key: req.key.clone(),
+        value: req.value.clone(),
+    };
 
-    web::block(move || store.set(key, value))
-        .await?
-        .map_err(|e| error::ErrorInternalServerError(format!("Store error: {}", e)))?;
-
-    Ok(HttpResponse::Ok().body("OK"))
+    match raft.propose(command).await {
+        Ok(_) => Ok(HttpResponse::Ok().body("OK")),
+        Err(err_msg) => Ok(HttpResponse::ServiceUnavailable().body(format!("Raft error: {}", err_msg))),
+    }
 }
 
 pub async fn get_kv(

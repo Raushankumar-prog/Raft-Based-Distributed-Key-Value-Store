@@ -6,9 +6,10 @@ mod rpc;
 mod storage;
 mod types;
 
-pub use api::RaftApi;
+pub use api::RaftHandle;
+pub use mem_storage::{MemError, MemStorage};
 pub use network::RaftNetwork;
 pub use node::RaftNode;
 pub use rpc::{AppendEntriesArgs, AppendEntriesReply, RequestVoteArgs, RequestVoteReply};
 pub use storage::RaftStorage;
-pub use types::{ClientCommand, LogEntry, RaftRole};
+pub use types::{ClientCommand, LogEntry, RaftMessage, RaftRole};

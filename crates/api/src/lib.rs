@@ -3,13 +3,13 @@ mod handlers;
 
 use actix_web::web;
 use kv_store::KvStore;
-use raft_core::RaftApi;
-use std::sync::{Arc, Mutex};
+use raft_core::RaftHandle;
+use std::sync::Arc;
 
 pub fn configure_app(
     cfg: &mut web::ServiceConfig,
     store: Arc<KvStore>,
-    raft: Arc<Mutex<dyn RaftApi>>,
+    raft: RaftHandle,
 ) {
     cfg.app_data(web::Data::new(store))
         .app_data(web::Data::new(raft))

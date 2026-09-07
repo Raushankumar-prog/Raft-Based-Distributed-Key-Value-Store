@@ -1,52 +1,65 @@
 # RaftKV - Asynchronous Distributed Key-Value Store
 
-**RaftKV** is a distributed Key-Value store built in Rust, implementing the **Raft Consensus Algorithm**. It handles leader election, log replication, and consistent data storage across a cluster of nodes.
+**RaftKV** is a distributed Key-Value store built in Rust, implementing the **Raft Consensus Algorithm**. It handles leader election, log replication, and consistent data storage across a multi-node cluster.
 
-This project demonstrates **Intermediate-to-Advanced Rust** patterns, focusing on asynchronous concurrency, type safety, and modular architecture.
+This project focuses on asynchronous Rust system design, leveraging Tokio actors, lock-free message passing, and modular Cargo workspace architecture.
 
 ## 🚀 Key Technical Highlights
 
-*   **Asynchronous Core**: Built on the **Tokio** runtime. The consensus engine uses non-blocking I/O for high-performance networking and timer management, avoiding costly thread spawning.
+*   **Actor-Based Concurrency**: Built on the **Tokio** runtime. The `RaftNode` runs as an asynchronous Actor inside a `tokio::select!` event loop, processing commands and RPCs via `mpsc` channels to avoid mutex lock-contention across `.await` points.
+*   **Quorum-Based Write Guarantees**: Proposals block non-blockingly using `oneshot` response channels and only resolve HTTP responses (`200 OK`) once log entries are committed by a majority quorum.
+*   **Parallel RPC Broadcasts**: Candidate elections and leader log replication fan out concurrently to all peer nodes using spawned Tokio tasks.
 *   **Pluggable Architecture**:
-    *   **Storage Abstraction**: Uses `#[async_trait]` to decouple the Raft logic from the underlying storage engine. This allows hot-swapping between `MemStorage` (for testing) and persistent `FileStorage`.
-    *   **Network Abstraction**: Decoupled network layer allowing for easy mocking and different transport implementations (gRPC, TCP, Channels).
-*   **Type-Safe Design**: Leveraging Rust's strong type system (Enums & Pattern Matching) to enforce valid state transitions and prevent "stringly typed" errors in command parsing.
-*   **Workspace Structure**: organized as a Cargo Workspace with isolated crates (`raft-core`, `kv-store`, `api`) to enforce separation of concerns.
+    *   **Storage Abstraction**: Uses `#[async_trait]` to decouple consensus state management (`RaftStorage`) from the physical storage engine, supporting in-memory (`MemStorage`) and persistent disk backends.
+    *   **Network Abstraction**: Decoupled transport layer (`RaftNetwork`) allowing seamless mocking in unit tests and HTTP/TCP transports in production.
+*   **Workspace Organization**: Split into isolated Cargo workspace crates (`raft-core`, `kv-store`, `api`, `raft-server`, `raft-client`) enforcing strict domain boundaries.
 
 ## 🏗️ Architecture
 
-The project is split into three main crates:
+The project is structured into three main library crates and binary targets:
 
--   `crates/raft-core`: The pure consensus logic. It defines the `RaftNode`, `RaftStorage` trait, and RPC types. It is completely agnostic of the web layer.
--   `crates/kv-store`: A persistent Log Structured Merge (LSM)-lite storage engine. It provides durability by appending to a write-ahead log (WAL).
--   `crates/api`: The HTTP Edge layer using **Actix-Web**. It translates REST requests into Raft commands.
+-   `crates/raft-core`: Pure consensus state machine (`RaftNode`), Actor handle (`RaftHandle`), `RaftStorage` trait, and RPC payload definitions.
+-   `crates/kv-store`: Durable Write-Ahead Log (WAL) storage engine backed by JSON log persistence and state restoration on startup.
+-   `crates/api`: Edge HTTP API layer built on **Actix-Web**, translating REST endpoints into Raft actor proposals.
+-   `bin/raft-server`: Server binary instantiating consensus actors, storage applier, and HTTP service.
 
 ## 🛠️ Usage
 
 ### Prerequisites
 -   Rust (1.70+)
 
-### Running a Node
+### Running a Cluster Node
 ```bash
-# Start the server (defaults to port 8080)
-cargo run --bin raft-server
+# Start Node 1 (id: 1, peers: 2, 3)
+cargo run --bin raft-server 1 2 3
+
+# Start Node 2 (id: 2, peers: 1, 3)
+cargo run --bin raft-server 2 1 3
+
+# Start Node 3 (id: 3, peers: 1, 2)
+cargo run --bin raft-server 3 1 2
 ```
 
 ### API Examples
-**Set a Value (Proposes to Raft Leader)**
+**Set a Key-Value Pair (Proposes to Raft Leader)**
 ```bash
-curl -X POST http://localhost:8080/set -d '{"key": "foo", "value": "bar"}' -H "Content-Type: application/json"
+curl -X POST http://localhost:8081/set -d '{"key": "foo", "value": "bar"}' -H "Content-Type: application/json"
 ```
 
-**Get a Value (Strongly Consistent Read)**
+**Get a Value**
 ```bash
-curl http://localhost:8080/get/foo
+curl http://localhost:8081/get/foo
 ```
 
 ## 🧪 Testing
 
-The project includes an InMemory Storage adapter (`MemStorage`) designed for high-speed integration testing of the consensus logic without hitting the disk.
+The test suite validates consensus state transitions, actor message handling, and fault tolerance under network partitions:
 
 ```bash
 cargo test
 ```
+
+### Key Tests Included
+- `test_single_node_raft_actor_and_proposal`: Tests actor initialization, election timeout, and proposal commit flow.
+- `test_three_node_cluster_network_partition`: Simulates a 3-node cluster, elects a leader, partitions the leader from its peers, and verifies that proposal commits fail when majority quorum is lost.
+
